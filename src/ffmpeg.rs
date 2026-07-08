@@ -1,5 +1,6 @@
 use std::process::Command;
 use std::io::{self, Error, ErrorKind};
+use std::path::Path;
 use log::{debug, info};
 
 pub fn run_command(mut command: Command) -> io::Result<()> {
@@ -33,6 +34,42 @@ pub fn build_video_command(
     command
 }
 
+pub fn extract_video_to_images_command(path: &str) -> Result<String, Error> {
+    let mut status = Command::new("ffmpeg")
+        .current_dir(Path::new(path).parent().unwrap())
+        .arg("-i")
+        .arg(path)
+        .arg("frames/frame_%04d.png")
+        .status()?;
+    if status.success() {
+        let extracted_images_path = Path::new(path).parent().unwrap().join("frames").to_string_lossy().into_owned();
+        Ok(extracted_images_path.to_string())
+    } else {
+        Err(Error::new(ErrorKind::Other, "Cannot extract video to images"))
+    }
+}
+
+pub fn images_to_video_command(frames_dir: &str, output_path: &str, fps: u32) -> Result<(), Error> {
+    let status = Command::new("ffmpeg")
+        .current_dir(Path::new(frames_dir).parent().unwrap())
+        .arg("-framerate")
+        .arg(fps.to_string())
+        .arg("-i")
+        .arg("frames/frame_%04d.png")
+        .arg("-c:v")
+        .arg("libx264")
+        .arg("-pix_fmt")
+        .arg("yuv420p")
+        .arg(output_path)
+        .status()?;
+
+    if status.success() {
+        Ok(())
+    } else {
+        Err(Error::new(ErrorKind::Other, "Cannot assemble images into video"))
+    }
+}
+
 pub fn get_video_fps(path: &str) -> io::Result<f64> {
     debug!("Getting video fps from: {}", path);
     let mut command = Command::new("ffprobe");
@@ -53,7 +90,7 @@ pub fn get_video_fps(path: &str) -> io::Result<f64> {
     let raw = String::from_utf8_lossy(&output.stdout);
     let trimmed = raw.trim();
 
-    // Handle fractional format (e.g., "30000/1001")
+    // Handle fractional format (eg, "30000/1001")
     if let Some((num_str, den_str)) = trimmed.split_once('/') {
         let num: f64 = num_str.parse()
             .map_err(|_| Error::new(ErrorKind::InvalidData, "Cannot parse numerator"))?;

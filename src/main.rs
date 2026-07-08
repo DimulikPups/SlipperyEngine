@@ -9,11 +9,13 @@ pub mod tests;
 
 use std::env;
 use log::{error, info};
-use crate::pipeline::{Builder};
+use log::Level::Error;
+use crate::pipeline::{Builder, Context};
 
 #[derive(Debug)]
 pub struct ParsedArgs {
     pub input_file: String,
+    pub output_file: String,
     pub vfitype: String,
     pub typeofexecution: i8,
     pub fps: f32,
@@ -47,6 +49,7 @@ impl Default for ParsedArgs {
     fn default() -> Self {
         Self {
             input_file: String::new(),
+            output_file: "".to_string(),
             vfitype: String::new(),
             typeofexecution: 0,
             fps: 0.0,
@@ -72,6 +75,7 @@ pub fn parse_args(args: &[String]) -> Result<ParsedArgs, String> {
 
         match args[i].as_str() {
             "-i" => parsed_args.input_file = value.clone(),
+            "-o" => parsed_args.output_file = value.clone(),
             "-vfitype" => parsed_args.vfitype = value.clone(),
             "-type" => parsed_args.typeofexecution = value.parse::<i8>().map_err(|e| e.to_string())?,
             "-fps" => parsed_args.fps = value.parse::<f32>().map_err(|_| "Failed to parse fps argument".to_string())?,
@@ -87,6 +91,9 @@ pub fn parse_args(args: &[String]) -> Result<ParsedArgs, String> {
 
     if parsed_args.input_file.is_empty() {
         return Err("No input file provided.".to_string());
+    }
+    if parsed_args.output_file.is_empty() {
+        return Err("No output folder provided.".to_string());
     }
     if parsed_args.vfitype.is_empty() {
         return Err("No VFI model type provided.".to_string());
@@ -106,19 +113,64 @@ fn main() {
 
     match parsed_args {
         Ok(parsed_args) => {
-            let (pipeline, context) = Builder::new()
-                .with_interpolation()
-                .with_scale(parsed_args.scale)
-                .with_union(parsed_args.union)
-                .with_fp16(parsed_args.fp16)
-                .build();
+            let media_type: &str = validate_media_type(parsed_args.input_file.as_str()); // video/images
+            match parsed_args.typeofexecution {
+                0 => {
+                    let (pipeline, context) = Builder::new()
+                        .with_encoding(true)
+                        .build();
 
-            let context = context
-                .with_original_fps(parsed_args.fps)
-                .with_multiply(parsed_args.multi);
+                    let mut context = context
+                        .with_new_fps(parsed_args.fps);
+                    to_images_path(media_type, &mut context, &parsed_args);
 
-            engine::execute(&pipeline, context);
+                    let completed_context: Context = engine::execute(&pipeline, context);
+                    info!("Execution completed successfully. Final path: {:?}", completed_context.current_path);
+                },
+                1 => {
+                    let (pipeline, context) = Builder::new()
+                        .with_encoding(true)
+/*                        .with_interpolation()
+                        .with_scale(parsed_args.scale)
+                        .with_union(parsed_args.union)
+                        .with_fp16(parsed_args.fp16)*/
+                        .build();
+
+                    let mut context = context
+                        .with_original_fps(parsed_args.fps)
+                        .with_multiply(parsed_args.multi);
+                    to_images_path(media_type, &mut context, &parsed_args);
+
+                    let compeleted_context: Context = engine::execute(&pipeline, context);
+                    info!("Execution completed successfully. Final path: {:?}", compeleted_context.current_path);
+                }
+                _ => {
+                    error!("Invalid type specified.");
+                }
+            }
         },
         Err(err) => error!("{}", err),
+    }
+}
+
+fn to_images_path(media_type: &str, context: &mut Context, parsed_args: &ParsedArgs) {
+    match media_type {
+        "video" => {
+            context.current_path = ffmpeg::extract_video_to_images_command(parsed_args.input_file.as_str()).unwrap();
+        }
+        "images" => {
+            context.current_path = parsed_args.input_file.clone();
+        },
+        _ => {
+            error!("Invalid media type: {}", media_type);
+        }
+    }
+}
+
+fn validate_media_type(dir: &str) -> &str {
+    if dir.ends_with(".mp4")  || dir.ends_with(".mkv") || dir.ends_with(".mov") {
+        "video"
+    } else {
+        "images"
     }
 }

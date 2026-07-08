@@ -1,29 +1,45 @@
 #[derive(Debug)]
 pub struct Context {
     pub current_path: String,
+    pub output_path: String,
     pub original_fps: f32,
     pub new_fps: f32,
     pub multiply: i8,
-    pub scale: f32,         // Scale factor for interpolation (e.g., 1.0)
-    pub union: bool,        // Use union model variant
-    pub fp16: bool,         // Use float16 precision
+    pub scale: f32,
+    pub vfi_model: String,
+    pub union: bool,
+    pub fp16: bool,
+    pub encoding: bool
 }
 
 impl Context {
-    pub fn new(current_path: impl Into<String>) -> Self {
+    pub fn new(current_path: impl Into<String>, vfi_model: impl Into<String>) -> Self {
         Self {
             current_path: current_path.into(),
+            output_path: "".to_string(),
             original_fps: 0.0,
             new_fps: 0.0,
             multiply: 1,
             scale: 1.0,
+            vfi_model: "".to_string(),
             union: false,
             fp16: false,
+            encoding: false,
         }
+    }
+
+    pub fn with_output_path(mut self, output_p: String) -> Self {
+        self.output_path = output_p;
+        self
     }
 
     pub fn with_original_fps(mut self, fps: f32) -> Self {
         self.original_fps = fps;
+        self
+    }
+
+    pub fn with_vfi_model(mut self, vfi_model: impl Into<String>) -> Self {
+        self.vfi_model = vfi_model.into();
         self
     }
 
@@ -49,6 +65,11 @@ impl Context {
 
     pub fn with_fp16(mut self, fp16: bool) -> Self {
         self.fp16 = fp16;
+        self
+    }
+
+    pub fn with_encoding(mut self, encoding: bool) -> Self {
+        self.encoding = encoding;
         self
     }
 }

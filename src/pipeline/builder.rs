@@ -1,7 +1,9 @@
+use crate::pipeline::encoding::Encode;
 use super::{Pipeline, Stage, Context};
 use super::interpolation::Interpolate;
 
 pub struct Builder {
+    is_encoding: bool,
     is_interpolating: bool,
     context_builder: Context,
 }
@@ -9,13 +11,19 @@ pub struct Builder {
 impl Builder {
     pub fn new() -> Self {
         Self {
+            is_encoding: false,
             is_interpolating: false,
-            context_builder: Context::new(""),
+            context_builder: Context::new("", ""),
         }
     }
 
     pub fn with_interpolation(mut self) -> Self {
         self.is_interpolating = true;
+        self
+    }
+
+    pub fn with_vfi_model(mut self, vfi_model: impl Into<String>) -> Self {
+        self.context_builder = self.context_builder.with_vfi_model(vfi_model);
         self
     }
 
@@ -34,8 +42,17 @@ impl Builder {
         self
     }
 
+    pub fn with_encoding(mut self, encode: bool) -> Self {
+        self.context_builder = self.context_builder.with_encoding(encode);
+        self
+    }
+
     pub fn build(self) -> (Pipeline, Context) {
         let mut stages: Vec<Box<dyn Stage>> = Vec::new();
+
+        if self.is_encoding {
+            stages.push(Box::new(Encode::new()))
+        }
 
         if self.is_interpolating { 
             stages.push(Box::new(Interpolate::new())); 

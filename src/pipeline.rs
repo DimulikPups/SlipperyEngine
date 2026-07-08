@@ -9,6 +9,7 @@ pub mod context;
 pub mod builder;
 
 mod interpolation;
+pub mod encoding;
 
 pub use stage::Stage;
 pub use context::Context;
