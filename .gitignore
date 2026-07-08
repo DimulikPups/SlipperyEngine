@@ -1,0 +1,5 @@
+/target/
+/.idea/
+/src/python/
+*.env
+*.json
