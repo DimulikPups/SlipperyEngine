@@ -4,9 +4,9 @@ use std::path::Path;
 use zip::ZipArchive;
 
 pub fn create_dir(path: &str, name: &str) -> io::Result<String> {
-    let full_path = format!("{}/{}", path, name);
+    let full_path = Path::new(path).join(name);
     fs::create_dir_all(&full_path)?;
-    Ok(full_path)
+    Ok(full_path.to_string_lossy().into_owned())
 }
 
 pub fn unzip(archive_path: &str, dest: &str) -> zip::result::ZipResult<()> {
@@ -29,4 +29,14 @@ pub fn unzip(archive_path: &str, dest: &str) -> zip::result::ZipResult<()> {
     }
 
     Ok(())
+}
+
+pub fn get_parent_path(dir: &str) -> String {
+    let parent_path = Path::new(dir).parent().unwrap().to_string_lossy().into_owned();
+    parent_path
+}
+
+pub fn get_filename(dir: &str) -> String {
+    let filename = Path::new(dir).file_name().unwrap().to_string_lossy().into_owned();
+    filename
 }

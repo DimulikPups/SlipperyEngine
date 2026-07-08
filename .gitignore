@@ -3,3 +3,5 @@
 /src/python/
 *.env
 *.json
+MAP.md
+AGENTS.md

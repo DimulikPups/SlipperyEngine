@@ -9,11 +9,13 @@ pub struct Context {
     pub vfi_model: String,
     pub union: bool,
     pub fp16: bool,
-    pub encoding: bool
+    pub encoding: bool,
+    pub codec: String,
+    pub codec_args: Vec<String>,
 }
 
 impl Context {
-    pub fn new(current_path: impl Into<String>, vfi_model: impl Into<String>) -> Self {
+    pub fn new(current_path: impl Into<String>) -> Self {
         Self {
             current_path: current_path.into(),
             output_path: "".to_string(),
@@ -25,6 +27,8 @@ impl Context {
             union: false,
             fp16: false,
             encoding: false,
+            codec: "libx264".to_string(),
+            codec_args: Vec::new(),
         }
     }
 
@@ -70,6 +74,16 @@ impl Context {
 
     pub fn with_encoding(mut self, encoding: bool) -> Self {
         self.encoding = encoding;
+        self
+    }
+
+    pub fn with_codec(mut self, codec: impl Into<String>) -> Self {
+        self.codec = codec.into();
+        self
+    }
+
+    pub fn with_codec_args(mut self, args: Vec<String>) -> Self {
+        self.codec_args = args;
         self
     }
 }

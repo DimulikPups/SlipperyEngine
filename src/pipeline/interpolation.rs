@@ -14,7 +14,7 @@ impl Stage for Interpolate {
         context.new_fps = context.original_fps * context.multiply as f32;
         // TODO: Implement actual frame interpolation using:
         // - context.scale for scale factor
-        // - context.union for union model variant
+        // - context.union for union model variant (GFMSS)
         // - context.fp16 for precision mode
     }
 }

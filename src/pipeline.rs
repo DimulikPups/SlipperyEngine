@@ -19,7 +19,7 @@ use log::info;
 use stage::Stage as PipelineStageTrait;
 
 pub struct Pipeline {
-    stages: Vec<Box<dyn PipelineStageTrait>>,
+    pub(crate) stages: Vec<Box<dyn PipelineStageTrait>>,
 }
 
 impl Pipeline {
@@ -29,7 +29,7 @@ impl Pipeline {
 
     pub fn execute(&self, context: &mut Context) {
         for stage in &self.stages {
-            info!("Executing stage: {:?}", stage);
+            info!("executing stage: {:?}", stage);
             stage.execute(context);
         }
     }

@@ -10,6 +10,7 @@ use log::info;
 use crate::fs::unzip;
 use crate::ParsedArgs;
 
+const PYTHON_VERSION: &str = "3.12.2";
 const PYTHON_DIR: &str = "src/python";
 const PYTHON_PACKED_DIR: &str = "src/python/python-packed";
 const PYTHON_EXE: &str = "src/python/python-packed/python.exe";
@@ -36,24 +37,24 @@ pub async fn run_script(script_dir: &str, parsed_args: ParsedArgs) -> Result<(),
 
 pub async fn ensure_python_ready() -> Result<(), Box<dyn Error>> {
     if !fs::exists(PYTHON_PACKED_DIR)? {
-        info!("Python not found. Downloading...");
+        info!("python not found. downloading...");
         tokio_fs::create_dir_all(PYTHON_DIR).await?;
         write_requirements().await?;
         download_python(PYTHON_DIR).await?;
-        info!("Python & pip downloaded. Extracting to {}", PYTHON_PACKED_DIR);
+        info!("python & pip downloaded. extracting to {}", PYTHON_PACKED_DIR);
         unzip("src/python/python-packed.zip", PYTHON_PACKED_DIR)?;
         enable_site_packages()?;
-        info!("Python extracted. Verifying...");
+        info!("python extracted. verifying...");
         check_python_version()?;
         install_pip()?;
-        info!("Installing Python dependencies...");
+        info!("installing python dependencies...");
         download_dependencies().await?;
-        info!("Python dependencies installed. Ready!");
+        info!("python dependencies installed. ready!");
         Ok(())
     } else {
         write_requirements().await?;
         enable_site_packages()?;
-        info!("Python runtime found at {}", PYTHON_PACKED_DIR);
+        info!("python runtime found at {}", PYTHON_PACKED_DIR);
         Ok(())
     }
 }
@@ -80,7 +81,7 @@ lpips";
 }
 
 async fn download_python(dir: &str) -> Result<(), Box<dyn Error>> {
-    let version = std::env::var("PYTHON_VERSION").unwrap();
+    let version = PYTHON_VERSION;
     let url = format!("https://www.python.org/ftp/python/{}/python-{}-embed-amd64.zip", version, version);
 
     let bytes = reqwest::get(url).await?.bytes().await?;
@@ -104,7 +105,7 @@ pub async fn download_dependencies() -> Result<(), Box<dyn Error>> {
     if !status.success() {
         return Err(Box::new(io::Error::new(
             io::ErrorKind::NotFound,
-            "Failed to install dependencies",
+            "failed to install dependencies",
         )));
     }
     Ok(())
@@ -141,6 +142,6 @@ pub fn check_python_version() -> Result<(), std::io::Error> {
     if status.success() {
         Ok(())
     } else {
-        Err(io::Error::other("Python check failed"))
+        Err(io::Error::other("python check failed"))
     }
 }

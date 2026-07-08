@@ -13,7 +13,7 @@ impl Builder {
         Self {
             is_encoding: false,
             is_interpolating: false,
-            context_builder: Context::new("", ""),
+            context_builder: Context::new(""),
         }
     }
 
@@ -43,19 +43,30 @@ impl Builder {
     }
 
     pub fn with_encoding(mut self, encode: bool) -> Self {
+        self.is_encoding = encode;
         self.context_builder = self.context_builder.with_encoding(encode);
+        self
+    }
+
+    pub fn with_codec(mut self, codec: impl Into<String>) -> Self {
+        self.context_builder = self.context_builder.with_codec(codec);
+        self
+    }
+
+    pub fn with_codec_args(mut self, args: Vec<String>) -> Self {
+        self.context_builder = self.context_builder.with_codec_args(args);
         self
     }
 
     pub fn build(self) -> (Pipeline, Context) {
         let mut stages: Vec<Box<dyn Stage>> = Vec::new();
 
-        if self.is_encoding {
-            stages.push(Box::new(Encode::new()))
+        if self.is_interpolating {
+            stages.push(Box::new(Interpolate::new()));
         }
 
-        if self.is_interpolating { 
-            stages.push(Box::new(Interpolate::new())); 
+        if self.is_encoding {
+            stages.push(Box::new(Encode::new()))
         }
 
         let context = self.context_builder;
