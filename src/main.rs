@@ -55,6 +55,7 @@ async fn main() {
                     let (pipeline, context) = Builder::new()
                         .with_interpolation()
                         .with_vfi_model(&parsed_args.vfi_model)
+                        .with_vfi_model_type(&parsed_args.vfi_model_type)
                         .with_scale(parsed_args.scale)
                         .with_union(parsed_args.union)
                         .with_fp16(parsed_args.vfi_fp16)
@@ -89,6 +90,7 @@ pub struct ParsedArgs {
     pub codec: String,
     pub codec_args: Vec<String>,
     pub vfi_model: String,
+    pub vfi_model_type: String,
     pub fps: f32,
     pub scale: f32,
     pub multi: i8,
@@ -105,6 +107,7 @@ impl<'a> IntoIterator for &'a ParsedArgs {
             "-i".to_string(), self.input_file.clone(),
             "-o".to_string(), self.output_file.clone(),
             "-vmodel".to_string(), self.vfi_model.clone(),
+            "-vtype".to_string(), self.vfi_model_type.clone(),
             "-type".to_string(), self.processing_type.to_string(),
             "-fps".to_string(), self.fps.to_string(),
             "-scale".to_string(), self.scale.to_string(),
@@ -144,6 +147,7 @@ impl Default for ParsedArgs {
             input_file: String::new(),
             output_file: "".to_string(),
             vfi_model: String::new(),
+            vfi_model_type: String::new(),
             processing_type: 0,
             fps: 0.0,
             scale: 1.0,
@@ -172,12 +176,13 @@ pub fn parse_args(args: &[String]) -> Result<ParsedArgs, String> {
             "-i" => parsed_args.input_file = value.clone(),
             "-o" => parsed_args.output_file = value.clone(),
             "-vmodel" => parsed_args.vfi_model = value.clone(),
+            "-vtype" => parsed_args.vfi_model_type = value.clone(),
             "-type" => parsed_args.processing_type = value.parse::<i8>().map_err(|e| e.to_string())?,
-            "-fps" => parsed_args.fps = value.parse::<f32>().map_err(|_| "Failed to parse fps argument".to_string())?,
-            "-scale" => parsed_args.scale = value.parse::<f32>().map_err(|_| "Failed to parse scale argument".to_string())?,
-            "-multi" => parsed_args.multi = value.parse::<i8>().map_err(|_| "Failed to parse multi argument".to_string())?,
-            "-fp16" => parsed_args.vfi_fp16 = value.parse::<bool>().map_err(|_| "Failed to parse fp16 argument".to_string())?,
-            "-union" => parsed_args.union = value.parse::<bool>().map_err(|_| "Failed to parse union argument".to_string())?,
+            "-fps" => parsed_args.fps = value.parse::<f32>().map_err(|_| "failed to parse fps argument".to_string())?,
+            "-scale" => parsed_args.scale = value.parse::<f32>().map_err(|_| "failed to parse scale argument".to_string())?,
+            "-multi" => parsed_args.multi = value.parse::<i8>().map_err(|_| "failed to parse multi argument".to_string())?,
+            "-fp16" => parsed_args.vfi_fp16 = value.parse::<bool>().map_err(|_| "failed to parse fp16 argument".to_string())?,
+            "-union" => parsed_args.union = value.parse::<bool>().map_err(|_| "failed to parse union argument".to_string())?,
             "-codec" => parsed_args.codec = value.clone(),
             "-codec-arg" => {
                 if let Some((key, val)) = value.split_once('=') {

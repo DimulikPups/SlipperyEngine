@@ -1,11 +1,9 @@
-﻿//! Python runtime setup and management.
-
 use std::process::{Command, Stdio};
 use std::error::Error;
 use std::fs;
 use tokio::io;
 use tokio::fs as tokio_fs;
-use log::info;
+use log::{info, warn};
 
 use crate::fs::unzip;
 use crate::ParsedArgs;
@@ -17,6 +15,7 @@ const PYTHON_EXE: &str = "src/python/python-packed/python.exe";
 const PYTHON_PTH: &str = "src/python/python-packed/python312._pth";
 const GET_PIP_SCRIPT: &str = "src/python/get-pip.py";
 const REQUIREMENTS_FILE: &str = "src/python/requirements.txt";
+const REQUIREMENTS_BASE_FILE: &str = "src/python/requirements_base.txt";
 
 pub async fn run_script(script_dir: &str, parsed_args: ParsedArgs) -> Result<(), Box<dyn Error>> {
     let mut process = tokio::process::Command::new(PYTHON_EXE)
@@ -39,7 +38,8 @@ pub async fn ensure_python_ready() -> Result<(), Box<dyn Error>> {
     if !fs::exists(PYTHON_PACKED_DIR)? {
         info!("python not found. downloading...");
         tokio_fs::create_dir_all(PYTHON_DIR).await?;
-        write_requirements().await?;
+        write_base_requirements().await?;
+        detect_cuda_and_write_requirements().await?;
         download_python(PYTHON_DIR).await?;
         info!("python & pip downloaded. extracting to {}", PYTHON_PACKED_DIR);
         unzip("src/python/python-packed.zip", PYTHON_PACKED_DIR)?;
@@ -52,16 +52,47 @@ pub async fn ensure_python_ready() -> Result<(), Box<dyn Error>> {
         info!("python dependencies installed. ready!");
         Ok(())
     } else {
-        write_requirements().await?;
+        write_base_requirements().await?;
+        detect_cuda_and_write_requirements().await?;
         enable_site_packages()?;
         info!("python runtime found at {}", PYTHON_PACKED_DIR);
         Ok(())
     }
 }
 
-async fn write_requirements() -> Result<(), Box<dyn Error>> {
+fn get_cuda_version() -> Option<String> {
+    let output = Command::new("nvidia-smi")
+        .arg("--query-gpu=driver_version")
+        .arg("--format=csv,noheader")
+        .output()
+        .ok()?;
+
+    if !output.status.success() {
+        return None;
+    }
+
+    let version_str = String::from_utf8_lossy(&output.stdout);
+    let version_str = version_str.trim();
+
+    if version_str.is_empty() {
+        return None;
+    }
+
+    if version_str.starts_with("12.") || version_str.starts_with("535.") || version_str.starts_with("536.") || version_str.starts_with("537.") {
+        Some("12x".to_string())
+    } else if version_str.starts_with("11.") {
+        Some("11x".to_string())
+    } else {
+        Some("12x".to_string())
+    }
+}
+
+fn check_nvidia_smi() -> bool {
+    Command::new("nvidia-smi").arg("--version").status().map(|s| s.success()).unwrap_or(false)
+}
+
+async fn write_base_requirements() -> Result<(), Box<dyn Error>> {
     let requirements = "\
-cupy-cuda11x
 matplotlib
 moviepy
 numpy>=1.26,<2
@@ -75,6 +106,33 @@ torchvision
 tqdm
 tensorboard
 lpips";
+
+    tokio_fs::write(REQUIREMENTS_BASE_FILE, requirements).await?;
+    Ok(())
+}
+
+async fn detect_cuda_and_write_requirements() -> Result<(), Box<dyn Error>> {
+    let cuda_version = get_cuda_version();
+
+    let requirements = if check_nvidia_smi() {
+        match cuda_version.as_deref() {
+            Some("12x") => {
+                info!("CUDA 12.x detected, using cupy-cuda12x");
+                "cupy-cuda12x"
+            }
+            Some("11x") => {
+                info!("CUDA 11.x detected, using cupy-cuda11x");
+                "cupy-cuda11x"
+            }
+            _ => {
+                warn!("Unknown CUDA version, defaulting to cupy-cuda12x");
+                "cupy-cuda12x"
+            }
+        }.to_string()
+    } else {
+        info!("No NVIDIA GPU detected, using cpu-only packages");
+        "cupy".to_string()
+    };
 
     tokio_fs::write(REQUIREMENTS_FILE, requirements).await?;
     Ok(())
@@ -94,6 +152,13 @@ async fn download_python(dir: &str) -> Result<(), Box<dyn Error>> {
 }
 
 pub async fn download_dependencies() -> Result<(), Box<dyn Error>> {
+    let base_req = fs::read_to_string(REQUIREMENTS_BASE_FILE)?;
+    let cuda_req = fs::read_to_string(REQUIREMENTS_FILE)?;
+
+    let combined = format!("{}\n{}", base_req.trim(), cuda_req.trim());
+
+    tokio_fs::write(REQUIREMENTS_FILE, combined).await?;
+
     let mut cmd = tokio::process::Command::new(PYTHON_EXE)
         .args(["-m", "pip", "install", "--no-warn-script-location", "-r", REQUIREMENTS_FILE])
         .stdout(Stdio::inherit())
@@ -125,12 +190,10 @@ pub fn install_pip() -> Result<(), Box<dyn Error>> {
 
 fn enable_site_packages() -> Result<(), Box<dyn Error>> {
     let pth = fs::read_to_string(PYTHON_PTH)?;
-
     if pth.contains("#import site") {
         let updated = pth.replace("#import site", "import site");
         fs::write(PYTHON_PTH, updated)?;
     }
-
     Ok(())
 }
 

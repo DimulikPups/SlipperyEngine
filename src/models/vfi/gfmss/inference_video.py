@@ -1,220 +1,211 @@
+"""
+GFMSS Video Frame Interpolation Inference
+Adapted for SlipperyEngine pipeline - processes frame directories
+"""
+
 import os
+import sys
 import cv2
 import torch
 import argparse
 import numpy as np
-from tqdm import tqdm
 from torch.nn import functional as F
+from tqdm import tqdm
 import warnings
 import _thread
-import skvideo.io
 from queue import Queue, Empty
 
 warnings.filterwarnings("ignore")
 
-def transferAudio(sourceVideo, targetVideo):
-    import shutil
-    import moviepy.editor
-    tempAudioFileName = "./temp/audio.mkv"
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, SCRIPT_DIR)
 
-    # split audio from original video file and store in "temp" directory
-    if True:
+from model.GMFSS_infer_b import Model as ModelB
+from model.GMFSS_infer_u import Model as ModelU
 
-        # clear old "temp" directory if it exits
-        if os.path.isdir("temp"):
-            # remove temp directory
-            shutil.rmtree("temp")
-        # create new "temp" directory
-        os.makedirs("temp")
-        # extract audio from video
-        os.system('ffmpeg -y -i "{}" -c:a copy -vn {}'.format(sourceVideo, tempAudioFileName))
+def get_cuda_version():
+    if not torch.cuda.is_available():
+        return None, None
 
-    targetNoAudio = os.path.splitext(targetVideo)[0] + "_noaudio" + os.path.splitext(targetVideo)[1]
-    os.rename(targetVideo, targetNoAudio)
-    # combine audio file and new video file
-    os.system('ffmpeg -y -i "{}" -i {} -c copy "{}"'.format(targetNoAudio, tempAudioFileName, targetVideo))
+    cuda_version = torch.version.cuda
+    if cuda_version:
+        major = cuda_version.split('.')[0]
+        if major == '12':
+            return '12x', 'cuda12x'
+        elif major == '11':
+            return '11x', 'cuda11x'
+    return '12x', 'cuda12x'
 
-    if os.path.getsize(targetVideo) == 0: # if ffmpeg failed to merge the video and audio together try converting the audio to aac
-        tempAudioFileName = "./temp/audio.m4a"
-        os.system('ffmpeg -y -i "{}" -c:a aac -b:a 160k -vn {}'.format(sourceVideo, tempAudioFileName))
-        os.system('ffmpeg -y -i "{}" -i {} -c copy "{}"'.format(targetNoAudio, tempAudioFileName, targetVideo))
-        if (os.path.getsize(targetVideo) == 0): # if aac is not supported by selected format
-            os.rename(targetNoAudio, targetVideo)
-            print("Audio transfer failed. Interpolated video will have no audio")
-        else:
-            print("Lossless audio transfer failed. Audio was transcoded to AAC (M4A) instead.")
+def auto_gpu_setup():
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-            # remove audio-less video
-            os.remove(targetNoAudio)
+    if torch.cuda.is_available():
+        gpu_name = torch.cuda.get_device_name(0)
+        cuda_ver = torch.version.cuda or "unknown"
+        print(f"[GPU] NVIDIA {gpu_name} detected (CUDA {cuda_ver})")
+
+        cuda_variant, package_suffix = get_cuda_version()
+        print(f"[GPU] Using CuPy package: cupy-{package_suffix}")
+
+        torch.backends.cudnn.enabled = True
+        torch.backends.cudnn.benchmark = True
+        print(f"[GPU] cuDNN benchmark enabled")
     else:
-        os.remove(targetNoAudio)
+        print("[GPU] No CUDA GPU detected, using CPU mode")
+        print("[GPU] For GPU acceleration, ensure NVIDIA drivers and CUDA toolkit are installed")
 
-    # remove temp directory
-    shutil.rmtree("temp")
+    return device
 
-parser = argparse.ArgumentParser(description='Interpolation for a pair of images')
-parser.add_argument('--video', dest='video', type=str, default=None)
-parser.add_argument('--output', dest='output', type=str, default=None)
-parser.add_argument('--img', dest='img', type=str, default=None)
-parser.add_argument('--montage', dest='montage', action='store_true', help='montage origin video')
-parser.add_argument('--model', dest='modelDir', type=str, default='train_log', help='directory with trained model files')
-parser.add_argument('--fp16', dest='fp16', action='store_true', help='fp16 mode for faster and more lightweight inference on cards with Tensor Cores')
-parser.add_argument('--UHD', dest='UHD', action='store_true', help='support 4k video')
-parser.add_argument('--scale', dest='scale', type=float, default=1.0, help='Try scale=0.5 for 4k video')
-parser.add_argument('--skip', dest='skip', action='store_true', help='whether to remove static frames before processing')
-parser.add_argument('--fps', dest='fps', type=int, default=None)
-parser.add_argument('--png', dest='png', action='store_true', help='whether to vid_out png format vid_outs')
-parser.add_argument('--ext', dest='ext', type=str, default='mp4', help='vid_out video extension')
-parser.add_argument('--exp', dest='exp', type=int, default=1)
-parser.add_argument('--multi', dest='multi', type=int, default=2)
-parser.add_argument('--union', dest='union', action='store_true', help='use union model')
+parser = argparse.ArgumentParser(description='GFMSS Interpolation for frame directories')
+parser.add_argument('--video', dest='video', type=str, default=None, help='Video file input (legacy, for compatibility)')
+parser.add_argument('--frames', dest='frames', type=str, required=True, help='Directory containing input frames')
+parser.add_argument('--output', dest='output', type=str, required=True, help='Output directory for interpolated frames')
+parser.add_argument('--model', dest='model_dir', type=str, default=None, help='Model directory (defaults to train_log subdirectory)')
+parser.add_argument('--fp16', dest='fp16', action='store_true', help='FP16 mode for faster inference on Tensor Cores')
+parser.add_argument('--scale', dest='scale', type=float, default=1.0, help='Scale factor (0.25, 0.5, 1.0, 2.0, 4.0)')
+parser.add_argument('--fps', dest='fps', type=float, default=None, help='Target FPS for naming')
+parser.add_argument('--multi', dest='multi', type=int, default=2, help='Number of interpolation steps per frame pair')
+parser.add_argument('--union', dest='union', action='store_true', help='Use union model (GMFSS_infer_u)')
+parser.add_argument('--gpu', dest='gpu', type=str, default="auto", help='GPU selection (auto, cuda, cpu)')
 
 args = parser.parse_args()
-if args.exp != 1:
-    args.multi = (2 ** args.exp)
-assert (not args.video is None or not args.img is None)
-if args.skip:
-    print("skip flag is abandoned, please refer to issue #207.")
-if args.UHD and args.scale==1.0:
-    args.scale = 0.5
-assert args.scale in [0.25, 0.5, 1.0, 2.0, 4.0]
-if not args.img is None:
-    args.png = True
 
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+if args.scale not in [0.25, 0.5, 1.0, 2.0, 4.0]:
+    print(f"Error: Scale must be one of [0.25, 0.5, 1.0, 2.0, 4.0], got {args.scale}")
+    sys.exit(1)
+
+device = auto_gpu_setup()
 torch.set_grad_enabled(False)
-if torch.cuda.is_available():
-    torch.backends.cudnn.enabled = True
-    torch.backends.cudnn.benchmark = True
-    if(args.fp16):
-        torch.set_default_tensor_type(torch.cuda.HalfTensor)
 
-if args.union == True:
-    try:
-        from model.GMFSS_infer_u import Model
-    except:
-        print("Please download model from model list or Check if it is a union model")
+if args.gpu == "cpu":
+    device = torch.device("cpu")
+    print("[GPU] Force CPU mode enabled")
+elif args.gpu == "cuda" and not torch.cuda.is_available():
+    print("[GPU] Warning: CUDA requested but not available, falling back to CPU")
+    device = torch.device("cpu")
+
+if device.type == "cuda" and args.fp16:
+    torch.set_default_tensor_type(torch.cuda.HalfTensor)
+    print("[GPU] FP16 mode enabled for Tensor Cores")
+
+# Determine model directory - use train_log subdirectory
+if args.model_dir is None:
+    model_dir = os.path.join(SCRIPT_DIR, "train_log")
 else:
-    try:
-        from model.GMFSS_infer_b import Model
-    except:
-        print("Please download model from model list or Check if it is a base model")    
-        
-model = Model()
-if not hasattr(model, 'version'):
-    model.version = 0
-model.load_model(args.modelDir, -1)
-print("Loaded model")
+    model_dir = args.model_dir
+
+# Check if model weights exist
+required_weights = ['flownet.pkl', 'metric.pkl', 'feat.pkl', 'fusionnet.pkl']
+if args.union:
+    required_weights.append('rife.pkl')
+
+for weight in required_weights:
+    weight_path = os.path.join(model_dir, weight)
+    if not os.path.exists(weight_path):
+        print(f"Error: Required weight file not found: {weight_path}")
+        sys.exit(1)
+
+# Initialize model based on union flag
+print(f"Loading {'union' if args.union else 'base'} model from {model_dir}")
+if args.union:
+    model = ModelU()
+else:
+    model = ModelB()
+
+model.version = 3.9  # Ensure version compatibility
+model.load_model(model_dir, -1)
 model.eval()
 model.device()
 
-if not args.video is None:
-    videoCapture = cv2.VideoCapture(args.video)
-    fps = videoCapture.get(cv2.CAP_PROP_FPS)
-    tot_frame = videoCapture.get(cv2.CAP_PROP_FRAME_COUNT)
-    videoCapture.release()
-    if args.fps is None:
-        fpsNotAssigned = True
-        args.fps = fps * args.multi
-    else:
-        fpsNotAssigned = False
-    videogen = skvideo.io.vreader(args.video)
-    lastframe = next(videogen)
-    fourcc = cv2.VideoWriter_fourcc('m', 'p', '4', 'v')
-    video_path_wo_ext, ext = os.path.splitext(args.video)
-    print('{}.{}, {} frames in total, {}FPS to {}FPS'.format(video_path_wo_ext, args.ext, tot_frame, fps, args.fps))
-    if args.png == False and fpsNotAssigned == True:
-        print("The audio will be merged after interpolation process")
-    else:
-        print("Will not merge audio because using png or fps flag!")
-else:
-    videogen = []
-    for f in os.listdir(args.img):
-        if 'png' in f:
-            videogen.append(f)
-    tot_frame = len(videogen)
-    videogen.sort(key= lambda x:int(x[:-4]))
-    lastframe = cv2.imread(os.path.join(args.img, videogen[0]), cv2.IMREAD_UNCHANGED)[:, :, ::-1].copy()
-    videogen = videogen[1:]
-h, w, _ = lastframe.shape
-vid_out_name = None
-vid_out = None
-if args.png:
-    if not os.path.exists('vid_out'):
-        os.mkdir('vid_out')
-else:
-    if args.output is not None:
-        vid_out_name = args.output
-    else:
-        vid_out_name = '{}_{}X_{}fps.{}'.format(video_path_wo_ext, args.multi, int(np.round(args.fps)), args.ext)
-    vid_out = cv2.VideoWriter(vid_out_name, fourcc, args.fps, (w, h))
+print("Model loaded successfully")
+
+# Get list of input frames
+frames_dir = args.frames
+frame_files = [f for f in os.listdir(frames_dir) if f.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp'))]
+frame_files.sort(key=lambda x: int(os.path.splitext(x)[0].split('_')[-1]))
+
+if len(frame_files) < 2:
+    print(f"Error: Need at least 2 frames, found {len(frame_files)}")
+    sys.exit(1)
+
+print(f"Processing {len(frame_files)} frames from {frames_dir}")
+
+# Create output directory
+os.makedirs(args.output, exist_ok=True)
+
+# Setup padding for model
+first_frame = cv2.imread(os.path.join(frames_dir, frame_files[0]), cv2.IMREAD_UNCHANGED)
+if first_frame is None:
+    print(f"Error: Could not read first frame: {frame_files[0]}")
+    sys.exit(1)
+
+h, w = first_frame.shape[:2]
+tmp = max(64, int(64 / args.scale))
+ph = ((h - 1) // tmp + 1) * tmp
+pw = ((w - 1) // tmp + 1) * tmp
+padding = (0, pw - w, 0, ph - h)
+
+# Thread-safe buffers
+write_buffer = Queue(maxsize=500)
+read_buffer = Queue(maxsize=500)
 
 def clear_write_buffer(user_args, write_buffer):
-    cnt = 0
+    """Thread function to write frames to output directory"""
+    frame_idx = 0
     while True:
         item = write_buffer.get()
         if item is None:
             break
-        if user_args.png:
-            cv2.imwrite('vid_out/{:0>7d}.png'.format(cnt), item[:, :, ::-1])
-            cnt += 1
-        else:
-            vid_out.write(item[:, :, ::-1])
+        output_path = os.path.join(user_args.output, f"{frame_idx:07d}.png")
+        cv2.imwrite(output_path, item)
+        frame_idx += 1
 
-def build_read_buffer(user_args, read_buffer, videogen):
-    try:
-        for frame in videogen:
-            if not user_args.img is None:
-                frame = cv2.imread(os.path.join(user_args.img, frame))[:, :, ::-1].copy()
-            if user_args.montage:
-                frame = frame[:, left: left + w]
+def build_read_buffer(user_args, read_buffer, frames_list):
+    """Thread function to load frames into buffer"""
+    for frame_file in frames_list:
+        frame_path = os.path.join(user_args.frames, frame_file)
+        frame = cv2.imread(frame_path, cv2.IMREAD_UNCHANGED)
+        if frame is not None:
             read_buffer.put(frame)
-    except:
-        pass
     read_buffer.put(None)
 
-def make_inference(I0, I1, reuse_things, n):    
-    global model
+def pad_image(img):
+    """Pad image to model's required size"""
+    if args.fp16:
+        return F.pad(img, padding).half()
+    else:
+        return F.pad(img, padding)
+
+def make_inference(I0, I1, reuse_things, n):
+    """Generate n intermediate frames between I0 and I1"""
     if model.version >= 3.9:
         res = []
         for i in range(n):
-            res.append(model.inference(I0, I1, reuse_things, (i+1) * 1. / (n+1)))
+            res.append(model.inference(I0, I1, reuse_things, (i + 1) * 1. / (n + 1)))
         return res
     else:
         middle = model.inference(I0, I1, args.scale)
         if n == 1:
             return [middle]
-        first_half = make_inference(I0, middle, n=n//2)
-        second_half = make_inference(middle, I1, n=n//2)
-        if n%2:
+        first_half = make_inference(I0, middle, n=n // 2)
+        second_half = make_inference(middle, I1, n=n // 2)
+        if n % 2:
             return [*first_half, middle, *second_half]
         else:
             return [*first_half, *second_half]
 
-def pad_image(img):
-    if(args.fp16):
-        return F.pad(img, padding).half()
-    else:
-        return F.pad(img, padding)
-
-if args.montage:
-    left = w // 4
-    w = w // 2
-tmp = max(64, int(64 / args.scale))
-ph = ((h - 1) // tmp + 1) * tmp
-pw = ((w - 1) // tmp + 1) * tmp
-padding = (0, pw - w, 0, ph - h)
-pbar = tqdm(total=tot_frame)
-if args.montage:
-    lastframe = lastframe[:, left: left + w]
-write_buffer = Queue(maxsize=500)
-read_buffer = Queue(maxsize=500)
-_thread.start_new_thread(build_read_buffer, (args, read_buffer, videogen))
+# Start processing threads
+_thread.start_new_thread(build_read_buffer, (args, read_buffer, frame_files))
 _thread.start_new_thread(clear_write_buffer, (args, write_buffer))
 
-I1 = torch.from_numpy(np.transpose(lastframe, (2,0,1))).to(device, non_blocking=True).unsqueeze(0).float() / 255.
+# Process first frame
+first_frame_rgb = first_frame[:, :, ::-1].copy()  # BGR to RGB
+I1 = torch.from_numpy(np.transpose(first_frame_rgb, (2, 0, 1))).to(device, non_blocking=True).unsqueeze(0).float() / 255.
 I1 = F.interpolate(I1, (ph, pw), mode='bilinear', align_corners=False)
-temp = None # save lastframe when processing static frame
+temp = None
+
+pbar = tqdm(total=len(frame_files) - 1, desc="Interpolating")
+lastframe = first_frame
 
 while True:
     if temp is not None:
@@ -222,45 +213,44 @@ while True:
         temp = None
     else:
         frame = read_buffer.get()
+
     if frame is None:
         break
-    I0 = I1
-    I1 = torch.from_numpy(np.transpose(frame, (2,0,1))).to(device, non_blocking=True).unsqueeze(0).float() / 255.
-    I1 = F.interpolate(I1, (ph, pw), mode='bilinear', align_corners=False)
-    
-    reuse_things = model.reuse(I0, I1, args.scale)
-    output = make_inference(I0, I1, reuse_things, args.multi-1)
 
-    if args.montage:
-        write_buffer.put(np.concatenate((lastframe, lastframe), 1))
-        for mid in output:
-            mid = (((mid[0] * 255.).byte().cpu().numpy().transpose(1, 2, 0)))
-            write_buffer.put(np.concatenate((lastframe, mid[:h, :w]), 1))
-    else:
-        write_buffer.put(lastframe)
-        for mid in output:
-            mid = F.interpolate(mid, (h, w), mode='bilinear', align_corners=False)
-            mid = (((mid[0] * 255.).byte().cpu().numpy().transpose(1, 2, 0)))
-            write_buffer.put(mid)
+    # Prepare current frame
+    I0 = I1
+    frame_rgb = frame[:, :, ::-1].copy()  # BGR to RGB
+    I1 = torch.from_numpy(np.transpose(frame_rgb, (2, 0, 1))).to(device, non_blocking=True).unsqueeze(0).float() / 255.
+    I1 = F.interpolate(I1, (ph, pw), mode='bilinear', align_corners=False)
+
+    # Run inference
+    reuse_things = model.reuse(I0, I1, args.scale)
+    output = make_inference(I0, I1, reuse_things, args.multi - 1)
+
+    # Write original frame
+    write_buffer.put(lastframe)
+
+    # Write interpolated frames
+    for mid in output:
+        mid = F.interpolate(mid, (h, w), mode='bilinear', align_corners=False)
+        mid = (((mid[0] * 255.).byte().cpu().numpy().transpose(1, 2, 0)))
+        write_buffer.put(mid)
+
     pbar.update(1)
     lastframe = frame
 
-if args.montage:
-    write_buffer.put(np.concatenate((lastframe, lastframe), 1))
-else:
-    write_buffer.put(lastframe)
-import time
-while(not write_buffer.empty()):
-    time.sleep(0.1)
-pbar.close()
-if not vid_out is None:
-    vid_out.release()
+# Write the last frame
+write_buffer.put(lastframe)
 
-# move audio to new video file if appropriate
-if args.png == False and fpsNotAssigned == True and not args.video is None:
-    try:
-        transferAudio(args.video, vid_out_name)
-    except:
-        print("Audio transfer failed. Interpolated video will have no audio")
-        targetNoAudio = os.path.splitext(vid_out_name)[0] + "_noaudio" + os.path.splitext(vid_out_name)[1]
-        os.rename(targetNoAudio, vid_out_name)
+# Wait for all frames to be written
+while not write_buffer.empty():
+    import time
+    time.sleep(0.1)
+
+pbar.close()
+
+# Signal write thread to finish
+write_buffer.put(None)
+
+print(f"Interpolation complete. Output saved to: {args.output}")
+print(f"Total output frames: {len([f for f in os.listdir(args.output) if f.endswith('.png')])}")

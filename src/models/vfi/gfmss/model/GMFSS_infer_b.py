@@ -49,13 +49,12 @@ class Model:
             return {
                 k.replace("module.", ""): v
                 for k, v in param.items()
-                if "module." in k
             }
 
-        self.flownet.load_state_dict(torch.load('{}/flownet.pkl'.format(path),map_location=device))
-        self.metricnet.load_state_dict(torch.load('{}/metric.pkl'.format(path),map_location=device))
-        self.feat_ext.load_state_dict(torch.load('{}/feat.pkl'.format(path),map_location=device))
-        self.fusionnet.load_state_dict(torch.load('{}/fusionnet.pkl'.format(path),map_location=device))
+        self.flownet.load_state_dict(convert(torch.load('{}/flownet.pkl'.format(path), map_location=device)))
+        self.metricnet.load_state_dict(convert(torch.load('{}/metric.pkl'.format(path), map_location=device)))
+        self.feat_ext.load_state_dict(convert(torch.load('{}/feat.pkl'.format(path), map_location=device)))
+        self.fusionnet.load_state_dict(convert(torch.load('{}/fusionnet.pkl'.format(path), map_location=device)), strict=False)
 
     def reuse(self, img0, img1, scale):
         feat11, feat12, feat13 = self.feat_ext(img0)

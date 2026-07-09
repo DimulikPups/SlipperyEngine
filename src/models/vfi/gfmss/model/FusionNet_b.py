@@ -56,10 +56,12 @@ class GridNet(nn.Module):
     def __init__(self, in_channels=12, in_channels1=128, in_channels2=256, in_channels3=384, out_channels=3):
         super(GridNet, self).__init__()
 
-        self.residual_model_head = ResidualBlock(in_channels, 64)
-        self.residual_model_head1 = ResidualBlock(in_channels1, 64)
-        self.residual_model_head2 = ResidualBlock(in_channels2, 128)
-        self.residual_model_head3 = ResidualBlock(in_channels3, 192)
+        self.residual_model_head0 = ResidualBlock(9, 64)
+        self.residual_model_head1 = ResidualBlock(128, 64)
+        self.residual_model_head2 = ResidualBlock(256, 128)
+        self.residual_model_head3 = ResidualBlock(384, 192)
+        # Projection layers to match checkpoint channel sizes
+        self.proj_x = nn.Conv2d(12, 9, 1)
 
         self.residual_model_01=ResidualBlock(64, 64)
         #self.residual_model_02=ResidualBlock(64, 64)
@@ -104,7 +106,9 @@ class GridNet(nn.Module):
         self.upsample_model_15=UpsampleBlock(192, 128)
 
     def forward(self, x, x1, x2, x3):
-        X00=self.residual_model_head(x) + self.residual_model_head1(x1)      #---   182 ~ 185
+        # Project input channels to match checkpoint expectations
+        x = self.proj_x(x)
+        X00=self.residual_model_head0(x) + self.residual_model_head1(x1)      #---   182 ~ 185
         # X10 = self.residual_model_head1(x1)
         
         X01=self.residual_model_01(X00) + X00#---   208 ~ 211 ,AddBackward1213

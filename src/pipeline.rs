@@ -1,10 +1,4 @@
-﻿//! Video processing pipeline system.
-//!
-//! The pipeline is a series of stages that process video frames sequentially.
-//! Each stage implements the `Stage` trait and receives a `Context` that
-//! tracks the current state of the processing.
-
-pub mod stage;
+﻿pub mod stage;
 pub mod context;
 pub mod builder;
 

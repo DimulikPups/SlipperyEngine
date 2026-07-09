@@ -50,7 +50,7 @@ mod main_tests {
             "input.mp4",
             "-o",
             "output.mp4",
-            "-vfitype",
+            "-vmodel",
             "gfmss",
             "-type",
             "1",
@@ -96,7 +96,7 @@ mod main_tests {
     fn test_parse_args_rejects_invalid_argument() {
         let result = parse_args(&args(&["SmoothOctopusEngine", "-unknown", "value"]));
 
-        assert_eq!(result.unwrap_err(), "Invalid argument: -unknown");
+        assert_eq!(result.unwrap_err(), "invalid argument: -unknown");
     }
 
     #[test]
@@ -107,13 +107,13 @@ mod main_tests {
             "input.mp4",
             "-o",
             "output.mp4",
-            "-vfitype",
+            "-vmodel",
             "gfmss",
             "-fps",
             "fast",
         ]));
 
-        assert_eq!(result.unwrap_err(), "Failed to parse fps argument");
+        assert_eq!(result.unwrap_err(), "failed to parse fps argument");
     }
 
     #[test]
@@ -134,7 +134,7 @@ mod main_tests {
             "false",
         ]));
 
-        assert_eq!(result.unwrap_err(), "No input file provided.");
+        assert_eq!(result.unwrap_err(), "no input file provided.");
     }
 
     #[test]
@@ -157,7 +157,7 @@ mod main_tests {
             "false",
         ]));
 
-        assert_eq!(result.unwrap_err(), "No VFI model type provided.");
+        assert_eq!(result.unwrap_err(), "no VFI model type provided.");
     }
 
     #[test]
@@ -180,7 +180,7 @@ mod main_tests {
             "false",
         ]));
 
-        assert_eq!(result.unwrap_err(), "No valid fps provided.");
+        assert_eq!(result.unwrap_err(), "no valid fps provided.");
     }
 
     #[test]
@@ -252,7 +252,7 @@ mod main_tests {
             "false",
         ]));
 
-        assert_eq!(result.unwrap_err(), "Failed to parse scale argument");
+        assert_eq!(result.unwrap_err(), "failed to parse scale argument");
     }
 
     #[test]
@@ -293,7 +293,7 @@ mod main_tests {
             "false",
         ]));
 
-        assert_eq!(result.unwrap_err(), "No output folder provided.");
+        assert_eq!(result.unwrap_err(), "no output folder provided.");
     }
 
     #[test]
@@ -302,25 +302,25 @@ mod main_tests {
         let r1 = parse_args(&args(&[
             "SmoothOctopusEngine", "-o", "out.mp4", "-vmodel", "gfmss", "-fps", "60",
         ]));
-        assert_eq!(r1.unwrap_err(), "No input file provided.");
+        assert_eq!(r1.unwrap_err(), "no input file provided.");
 
         // Missing -o
         let r2 = parse_args(&args(&[
             "SmoothOctopusEngine", "-i", "in.mp4", "-vmodel", "gfmss", "-fps", "60",
         ]));
-        assert_eq!(r2.unwrap_err(), "No output folder provided.");
+        assert_eq!(r2.unwrap_err(), "no output folder provided.");
 
         // Missing "-vmodel"
         let r3 = parse_args(&args(&[
             "SmoothOctopusEngine", "-i", "in.mp4", "-o", "out.mp4", "-fps", "60",
         ]));
-        assert_eq!(r3.unwrap_err(), "No VFI model type provided.");
+        assert_eq!(r3.unwrap_err(), "no VFI model type provided.");
 
         // Missing -fps
         let r4 = parse_args(&args(&[
             "SmoothOctopusEngine", "-i", "in.mp4", "-o", "out.mp4", "-vmodel", "gfmss",
         ]));
-        assert_eq!(r4.unwrap_err(), "No valid fps provided.");
+        assert_eq!(r4.unwrap_err(), "no valid fps provided.");
     }
 
     #[test]
@@ -332,7 +332,7 @@ mod main_tests {
             "-vmodel", "gfmss",
             "-fps", "-30",
         ]));
-        assert_eq!(result.unwrap_err(), "No valid fps provided.");
+        assert_eq!(result.unwrap_err(), "no valid fps provided.");
     }
 
     #[test]
@@ -344,7 +344,7 @@ mod main_tests {
             "-vmodel", "gfmss",
             "-fps", "0",
         ]));
-        assert_eq!(result.unwrap_err(), "No valid fps provided.");
+        assert_eq!(result.unwrap_err(), "no valid fps provided.");
     }
 
     #[test]

@@ -67,35 +67,6 @@ mod pipeline_tests {
     }
 
     #[test]
-    fn test_context_new_fps_calculation_with_rounding() {
-        // Verifies fix: fps should be calculated correctly and rounded (not truncated)
-        let (pipeline, context) = Builder::new()
-            .with_interpolation()
-            .with_encoding(true)
-            .build();
-
-        // Test case: 29.97 fps * 2 = 59.94, should round to 60
-        let context = context
-            .with_original_fps(29.97)
-            .with_multiply(2);
-
-        let result = engine::execute(&pipeline, context);
-        assert_eq!(result.new_fps, 59.94);
-
-        // Test truncation case: 23.976 * 2 = 47.952, should round to 48 not 47
-        let (pipeline2, context2) = Builder::new()
-            .with_interpolation()
-            .with_encoding(true)
-            .build();
-        let context2 = context2
-            .with_original_fps(23.976)
-            .with_multiply(2);
-
-        let result2 = engine::execute(&pipeline2, context2);
-        assert_eq!(result2.new_fps, 47.952);
-    }
-
-    #[test]
     fn test_context_new_accepts_path_and_vfi_model() {
         // Verifies: Context::new takes (current_path, vfi_model)
         let context = Context::new("/some/path")

@@ -27,6 +27,11 @@ impl Builder {
         self
     }
 
+    pub fn with_vfi_model_type(mut self, vfi_model_type: impl Into<String>) -> Self {
+        self.context_builder = self.context_builder.with_vfi_model_type(vfi_model_type);
+        self
+    }
+
     pub fn with_scale(mut self, scale: f32) -> Self {
         self.context_builder = self.context_builder.with_scale(scale);
         self

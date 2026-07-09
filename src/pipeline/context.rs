@@ -7,6 +7,7 @@ pub struct Context {
     pub multiply: i8,
     pub scale: f32,
     pub vfi_model: String,
+    pub vfi_model_type: String,
     pub union: bool,
     pub fp16: bool,
     pub encoding: bool,
@@ -24,6 +25,7 @@ impl Context {
             multiply: 1,
             scale: 1.0,
             vfi_model: "".to_string(),
+            vfi_model_type: "".to_string(),
             union: false,
             fp16: false,
             encoding: false,
@@ -44,6 +46,11 @@ impl Context {
 
     pub fn with_vfi_model(mut self, vfi_model: impl Into<String>) -> Self {
         self.vfi_model = vfi_model.into();
+        self
+    }
+
+    pub fn with_vfi_model_type(mut self, vfi_model_type: impl Into<String>) -> Self {
+        self.vfi_model_type = vfi_model_type.into();
         self
     }
 
